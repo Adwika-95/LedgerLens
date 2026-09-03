@@ -1,0 +1,22 @@
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+ENV/
+*.sqlite3
+*.db
+
+# Environment Variables & Secrets
+.env
+
+# Node.js / Frontend Build Artifacts
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
