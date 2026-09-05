@@ -1,13 +1,19 @@
 import random
+import json
+import os
 from datetime import datetime, timedelta
-from db import init_db, get_connection
+
+from backend.database.db import init_db, get_connection
+
+GROUND_TRUTH_PATH = os.path.join(os.path.dirname(__file__), "ground_truth.json")
+
 
 def seed_database():
     init_db()
     conn = get_connection()
     cur = conn.cursor()
 
-    random.seed(42) 
+    random.seed(42)
     base_date = datetime(2026, 8, 1)
 
     products = [
@@ -28,10 +34,31 @@ def seed_database():
 
     cur.executemany("INSERT INTO merchant_orders VALUES (?,?,?,?,?,?,?)", orders)
 
-    missing_gateway_idx = {5, 12}        
-    missing_bank_idx = {18, 27, 44}      
-    amount_mismatch_idx = {53, 71}       
-    duplicate_utr_idx = 89               
+    # Deterministic ground truth: exactly which orders are broken, and why.
+    # This is what lets the engine's output be *scored* instead of eyeballed.
+    missing_gateway_idx = {5, 12}
+    missing_bank_idx = {18, 27, 44}
+    amount_mismatch_idx = {53, 71}
+    duplicate_utr_idx = 89
+    status_mismatch_idx = {33, 62}
+
+    ground_truth = {}
+    for i in missing_gateway_idx:
+        ground_truth[f"ORD_{i:04d}"] = "MISSING_FROM_GATEWAY"
+    for i in missing_bank_idx:
+        ground_truth[f"ORD_{i:04d}"] = "MISSING_FROM_BANK"
+    for i in amount_mismatch_idx:
+        ground_truth[f"ORD_{i:04d}"] = "AMOUNT_MISMATCH"
+    # Reusing a UTR makes BOTH the original order and the order that reused it
+    # genuinely ambiguous from the bank statement's point of view — both are
+    # real exceptions, not just the one whose UTR got overwritten.
+    ground_truth[f"ORD_{duplicate_utr_idx:04d}"] = "DUPLICATE_UTR"
+    ground_truth[f"ORD_{duplicate_utr_idx - 1:04d}"] = "DUPLICATE_UTR"
+    for i in status_mismatch_idx:
+        ground_truth[f"ORD_{i:04d}"] = "STATUS_MISMATCH"
+
+    with open(GROUND_TRUTH_PATH, "w") as f:
+        json.dump(ground_truth, f, indent=2)
 
     gateway_records = []
     bank_records = []
@@ -53,13 +80,15 @@ def seed_database():
         fee = round(amount * 0.02, 2)
         tax = round(fee * 0.18, 2)
         net_expected = round(amount - fee - tax, 2)
+        gw_status = "CAPTURED" if i not in status_mismatch_idx else "FAILED"
 
         gateway_records.append((
             payment_id, order_id, utr, tx_date,
-            amount, fee, tax, net_expected, "CAPTURED"
+            amount, fee, tax, net_expected, gw_status
         ))
 
-        if i in missing_bank_idx:
+        if i in missing_bank_idx or i in status_mismatch_idx:
+            # A failed gateway payment never reaches settlement either.
             continue
 
         bank_tx_id = f"BANK_{i:04d}"
@@ -81,7 +110,9 @@ def seed_database():
 
     conn.commit()
     conn.close()
-    print("Database seeded successfully: 100 Orders, 98 Gateway Txns, 95 Bank Entries.")
+    print(f"Database seeded: 100 orders, {len(gateway_records)} gateway txns, {len(bank_records)} bank entries.")
+    print(f"Ground truth written to {GROUND_TRUTH_PATH} ({len(ground_truth)} injected anomalies).")
+
 
 if __name__ == "__main__":
     seed_database()
