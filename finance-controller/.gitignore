@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+backend/database/finance_controller.db
+backend/database/ground_truth.json
+node_modules/
+frontend/dist/
+.DS_Store
